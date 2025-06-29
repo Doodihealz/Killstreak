@@ -50,7 +50,8 @@ Requires Eluna Engine!
 
 ---
 ## ‼️Disclaimer:
-- This should be compatible with any other script.
+- This should be compatible with any other script as well as it works with playerbots!
+- There is a slight concern for performance in massive servers (3000+ players)
 - You may not sell this script. Any edits must freely be distributed back into the modding scene if you publish them.
 - I kindly ask you give credit if you do edit the script.
 
