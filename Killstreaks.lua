@@ -1,36 +1,22 @@
 if Killstreak_Initialized then return end
 Killstreak_Initialized = true
 
--- ######################################################
--- Killstreak Bonus XP Script for AzerothCore (Eluna)
--- ######################################################
-
 -- === CONFIGURATION ===
-local ENABLE_KILLSTREAKS = true -- Toggle system ON/OFF
-local STREAK_TIMEOUT = 5        -- Seconds before streak expires
+local ENABLE_KILLSTREAKS = true
+local STREAK_TIMEOUT = 5
 
 local RANK_MULTIPLIER = {
-    [0] = 1.0,   -- Normal
-    [1] = 1.25,  -- Elite
-    [2] = 1.5,   -- Rare Elite
-    [3] = 2.0,   -- World Boss
-    [4] = 1.25   -- Rare
+    [0] = 1.0,
+    [1] = 1.25,
+    [2] = 1.5,
+    [3] = 2.0,
+    [4] = 1.25
 }
 
--- XP bonus scale based on kill count
--- Formula: base + (kills ^ exponent) * multiplier, capped to max
--- BASE_SCALE is the minimum bonus (e.g., 0.1 = 10%)
--- SCALE_MULTIPLIER controls how quickly the bonus grows
--- SCALE_EXPONENT defines the curve sharpness (lower = faster early growth)
--- MAX_SCALE is the absolute cap on bonus XP (e.g., 1.0 = 100%)
-local BASE_SCALE = 0.1
-local SCALE_MULTIPLIER = 0.03
-local SCALE_EXPONENT = 0.7
-local MAX_SCALE = 1.0
-
-local TIMER_EVENT_ID = 50001
-
--- ######################################################
+local BASE_SCALE = 0.1            -- Minimum XP bonus
+local PER_KILL_SCALE = 0.025      -- XP increase per additional kill
+local BONUS_FLAT_SCALE = 0.05     -- Flat extra bonus
+local MAX_SCALE = 1.0             -- Max bonus XP multiplier
 
 local streakData = {}
 
@@ -41,28 +27,19 @@ local function ResetKillstreak(player, died)
     local data = streakData[guid]
     if not data then return end
 
-    if data.kills > 1 and data.totalXP > 0 then
+    if data.kills > 1 and data.rawXP > 0 then
         if died then
             player:SendBroadcastMessage("You died. Killstreak lost. No bonus XP awarded.")
         else
-            local scale = math.min(MAX_SCALE, BASE_SCALE + (data.kills ^ SCALE_EXPONENT) * SCALE_MULTIPLIER)
-            local bonusXP = math.floor(data.totalXP * scale)
+            -- Base 5%, +6% per extra kill after first, capped to 30%
+            local scale = math.min(0.30, 0.05 + ((data.kills - 1) * 0.06))
+            local bonusXP = math.floor(data.rawXP * scale)
             player:GiveXP(bonusXP, player:GetLevel())
             player:SendBroadcastMessage("Killstreak ended! Bonus XP gained: |cff00ff00" .. bonusXP .. "|r")
         end
     end
 
-    player:RemoveEventsById(TIMER_EVENT_ID)
     streakData[guid] = nil
-end
-
-local function UpdateKillstreakTimer(_, _, _, player)
-    if not ENABLE_KILLSTREAKS or not player or not player:IsInWorld() then return end
-
-    local data = streakData[player:GetGUIDLow()]
-    if data and os.clock() - data.lastKill >= STREAK_TIMEOUT then
-        ResetKillstreak(player, false)
-    end
 end
 
 local function OnCreatureKill(_, killer, killed)
@@ -72,51 +49,58 @@ local function OnCreatureKill(_, killer, killed)
 
     local guid = player:GetGUIDLow()
     local currentXP = player:GetXP()
+    local lastXP = streakData[guid] and streakData[guid].lastXP or 0
+    local gainedXP = math.max(0, currentXP - lastXP)
+
+    if gainedXP == 0 then return end
+
+    local now = os.clock()
 
     local data = streakData[guid]
     if not data then
         data = {
-            kills = 0,
-            lastKill = os.clock(),
-            totalXP = 0,
-            lastXP = currentXP,
-            timerActive = false
+            kills = 1,
+            lastKill = now,
+            rawXP = gainedXP,
+            lastXP = currentXP
         }
         streakData[guid] = data
+    else
+        data.kills = data.kills + 1
+        data.lastKill = now
+        data.rawXP = data.rawXP + gainedXP
+        data.lastXP = currentXP
     end
-
-    if not data.timerActive then
-        player:RegisterEvent(UpdateKillstreakTimer, 1000, 0, player, TIMER_EVENT_ID)
-        data.timerActive = true
-    end
-
-    local gainedXP = math.max(0, currentXP - data.lastXP)
-    if gainedXP == 0 then return end
-
-    local rank = killed:GetRank()
-    local scale = RANK_MULTIPLIER[rank] or 1.0
-
-    data.kills = data.kills + 1
-    data.lastKill = os.clock()
-    data.totalXP = data.totalXP + (gainedXP * scale)
-    data.lastXP = currentXP
 
     if data.kills > 1 then
-        player:SendBroadcastMessage("Killstreak: " .. data.kills)
+        player:SendBroadcastMessage("Killstreak: |cff00ff00" .. data.kills .. "|r")
     end
 end
 
-local function ClearPlayerData(_, player)
+local function OnPlayerDie(_, player)
     if not ENABLE_KILLSTREAKS or not player then return end
     ResetKillstreak(player, true)
 end
 
-local function OnLogout(_, player)
+local function OnPlayerLogout(_, player)
     if not ENABLE_KILLSTREAKS or not player then return end
-    player:RemoveEventsById(TIMER_EVENT_ID)
     streakData[player:GetGUIDLow()] = nil
 end
 
-RegisterPlayerEvent(7, OnCreatureKill)
-RegisterPlayerEvent(8, ClearPlayerData)
-RegisterPlayerEvent(4, OnLogout)
+local function GlobalKillstreakTimerCheck(eventId, delay, repeats)
+    local now = os.clock()
+    for guid, data in pairs(streakData) do
+        if data and now - data.lastKill >= STREAK_TIMEOUT then
+            local player = GetPlayerByGUID(guid)
+            if player and player:IsInWorld() then
+                ResetKillstreak(player, false)
+            end
+        end
+    end
+end
+
+CreateLuaEvent(GlobalKillstreakTimerCheck, 1000, 0)
+
+RegisterPlayerEvent(7, OnCreatureKill) -- OnKill
+RegisterPlayerEvent(8, OnPlayerDie)    -- OnDie
+RegisterPlayerEvent(4, OnPlayerLogout) -- OnLogout
