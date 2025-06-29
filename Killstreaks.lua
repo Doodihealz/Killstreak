@@ -4,7 +4,7 @@ Killstreak_Initialized = true
 -- === CONFIGURATION ===
 local ENABLE_KILLSTREAKS = true
 local STREAK_TIMEOUT = 5 -- seconds
-local BONUS_PERCENT = 0.025 -- 2.5% bonus per kill
+local BONUS_PERCENT = 0.14 -- 14% bonus per kill
 
 local streakData = {}
 
@@ -16,14 +16,14 @@ local function ResetKillstreak(player, died)
     if not data then return end
 
     if data.kills > 1 and data.totalBonus > 0 then
-    if died then
-        player:SendBroadcastMessage("You died. Killstreak lost. No bonus XP awarded.")
-    else
-        local bonus = math.floor(data.totalBonus)
-        player:GiveXP(bonus, player:GetLevel())
-        player:SendBroadcastMessage("Killstreak ended! Bonus XP gained: |cff00ff00" .. bonus .. "|r")
+        if died then
+            player:SendBroadcastMessage("You died. Killstreak lost. No bonus XP awarded.")
+        else
+            local bonus = math.floor(data.totalBonus)
+            player:GiveXP(bonus, player:GetLevel())
+            player:SendBroadcastMessage("Killstreak ended! Bonus XP gained: |cff00ff00" .. bonus .. "|r")
+        end
     end
-end
 
     streakData[guid] = nil
 end
@@ -36,27 +36,27 @@ local function OnCreatureKill(_, killer, killed)
 
     local guid = player:GetGUIDLow()
     local currentXP = player:GetXP()
+    local now = os.clock()
     local data = streakData[guid]
 
-    local lastXP = data and data.lastXP or 0
-    local gainedXP = math.max(0, currentXP - lastXP)
-    if gainedXP == 0 then return end
-
-    local bonus = gainedXP * BONUS_PERCENT
-
-    local now = os.clock()
     if not data then
-        data = {
+        -- First kill: initialize, no bonus yet
+        streakData[guid] = {
             kills = 1,
             lastKill = now,
             lastXP = currentXP,
-            totalBonus = bonus
+            totalBonus = 0
         }
-        streakData[guid] = data
-    else
-        data.kills = data.kills + 1
-        data.lastKill = now
-        data.lastXP = currentXP
+        return
+    end
+
+    local gainedXP = math.max(0, currentXP - data.lastXP)
+    data.kills = data.kills + 1
+    data.lastKill = now
+    data.lastXP = currentXP
+
+    if gainedXP > 0 then
+        local bonus = gainedXP * BONUS_PERCENT
         data.totalBonus = data.totalBonus + bonus
     end
 
