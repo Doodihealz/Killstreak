@@ -1,10 +1,9 @@
 if Killstreak_Initialized then return end
 Killstreak_Initialized = true
 
--- === CONFIGURATION ===
 local ENABLE_KILLSTREAKS = true
-local STREAK_TIMEOUT = 5 -- seconds
-local BONUS_PERCENT = 0.14 -- 14% bonus per kill
+local STREAK_TIMEOUT = 5
+local BONUS_PERCENT = 0.14
 
 local streakData = {}
 
@@ -15,11 +14,11 @@ local function ResetKillstreak(player, died)
     local data = streakData[guid]
     if not data then return end
 
-    if data.kills > 1 and data.totalBonus > 0 then
+    if data.kills > 1 and data.totalXP > 0 then
         if died then
             player:SendBroadcastMessage("You died. Killstreak lost. No bonus XP awarded.")
         else
-            local bonus = math.floor(data.totalBonus)
+            local bonus = math.floor(data.totalXP * BONUS_PERCENT)
             player:GiveXP(bonus, player:GetLevel())
             player:SendBroadcastMessage("Killstreak ended! Bonus XP gained: |cff00ff00" .. bonus .. "|r")
         end
@@ -28,67 +27,61 @@ local function ResetKillstreak(player, died)
     streakData[guid] = nil
 end
 
-local function OnCreatureKill(_, killer, killed)
-    if not ENABLE_KILLSTREAKS or not killer or not killer:IsPlayer() then return end
+local function PollXPTracker(eventId, delay, repeats)
+    for _, player in pairs(GetPlayersInWorld()) do
+        if player and player:IsInWorld() then
+            local guid = player:GetGUIDLow()
+            local currentXP = player:GetXP()
+            local now = os.clock()
+            local data = streakData[guid]
 
-    local player = killer:ToPlayer()
-    if not player or not player:IsInWorld() or not killed then return end
+            if not data then
+                streakData[guid] = {
+                    kills = 0,
+                    lastXP = currentXP,
+                    lastGainTime = now,
+                    totalXP = 0,
+                    locked = false
+                }
+            else
+                local gainedXP = currentXP - data.lastXP
 
-    local guid = player:GetGUIDLow()
-    local currentXP = player:GetXP()
-    local now = os.clock()
-    local data = streakData[guid]
+                if gainedXP > 0 and not data.locked then
+                    data.kills = data.kills + 1
+                    data.totalXP = data.totalXP + gainedXP
+                    data.lastGainTime = now
+                    data.locked = true
 
-    if not data then
-        -- First kill: initialize, no bonus yet
-        streakData[guid] = {
-            kills = 1,
-            lastKill = now,
-            lastXP = currentXP,
-            totalBonus = 0
-        }
-        return
-    end
+                    if data.kills > 1 then
+                        player:SendBroadcastMessage("Killstreak: |cff00ff00" .. data.kills .. "|r")
+                    end
+                elseif gainedXP == 0 then
+                    data.locked = false
+                end
 
-    local gainedXP = math.max(0, currentXP - data.lastXP)
-    data.kills = data.kills + 1
-    data.lastKill = now
-    data.lastXP = currentXP
+                data.lastXP = currentXP
 
-    if gainedXP > 0 then
-        local bonus = gainedXP * BONUS_PERCENT
-        data.totalBonus = data.totalBonus + bonus
-    end
-
-    if data.kills > 1 then
-        player:SendBroadcastMessage("Killstreak: |cff00ff00" .. data.kills .. "|r")
-    end
-end
-
-local function OnPlayerDie(_, player)
-    if not ENABLE_KILLSTREAKS or not player then return end
-    ResetKillstreak(player, true)
-end
-
-local function OnPlayerLogout(_, player)
-    if not ENABLE_KILLSTREAKS or not player then return end
-    streakData[player:GetGUIDLow()] = nil
-end
-
-local function GlobalKillstreakTimerCheck(eventId, delay, repeats)
-    local now = os.clock()
-    for guid, data in pairs(streakData) do
-        if data and now - data.lastKill >= STREAK_TIMEOUT then
-            local player = GetPlayerByGUID(guid)
-            if player and player:IsInWorld() then
-                ResetKillstreak(player, false)
+                if now - data.lastGainTime >= STREAK_TIMEOUT then
+                    ResetKillstreak(player, false)
+                end
             end
         end
     end
 end
 
-CreateLuaEvent(GlobalKillstreakTimerCheck, 1000, 0)
+local function OnPlayerDie(_, player)
+    if ENABLE_KILLSTREAKS and player then
+        ResetKillstreak(player, true)
+    end
+end
 
-RegisterPlayerEvent(7, OnCreatureKill)
+local function OnPlayerLogout(_, player)
+    if ENABLE_KILLSTREAKS and player then
+        streakData[player:GetGUIDLow()] = nil
+    end
+end
+
+CreateLuaEvent(PollXPTracker, 250, 0)
+
 RegisterPlayerEvent(8, OnPlayerDie)
 RegisterPlayerEvent(4, OnPlayerLogout)
