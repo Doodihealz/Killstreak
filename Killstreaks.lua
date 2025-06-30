@@ -2,7 +2,7 @@ if Killstreak_Initialized then return end
 Killstreak_Initialized = true
 
 local STREAK_TIMEOUT = 5
-local BONUS_PERCENT = 0.21
+local BONUS_PERCENT = 0.14
 
 local streakData = {}
 
@@ -15,7 +15,7 @@ local function ResetKillstreak(player, died)
         if died then
             player:SendBroadcastMessage("You died. Killstreak lost. No bonus XP awarded.")
         else
-            local bonus = math.floor(data.totalXP * BONUS_PERCENT)
+            local bonus = math.floor(data.totalXP * BONUS_PERCENT * data.kills)
             player:GiveXP(bonus, player:GetLevel())
             player:SendBroadcastMessage("Killstreak ended! Bonus XP gained: |cff00ff00" .. bonus .. "|r")
         end
