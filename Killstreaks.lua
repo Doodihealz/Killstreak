@@ -2,7 +2,7 @@ if Killstreak_Initialized then return end
 Killstreak_Initialized = true
 
 local STREAK_TIMEOUT = 5
-local BONUS_PERCENT = 0.14
+local BONUS_PERCENT = 0.21
 
 local streakData = {}
 
