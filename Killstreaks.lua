@@ -2,11 +2,14 @@ if Killstreak_Initialized then return end
 Killstreak_Initialized = true
 
 local STREAK_TIMEOUT = 5
-local BONUS_PERCENT = 0.14
+local BONUS_PERCENT = 0.21
+local MAX_LEVEL = 80
 
 local streakData = {}
 
 local function ResetKillstreak(player, died)
+    if player:GetLevel() >= MAX_LEVEL then return end
+
     local guid = player:GetGUIDLow()
     local data = streakData[guid]
     if not data then return end
@@ -15,7 +18,8 @@ local function ResetKillstreak(player, died)
         if died then
             player:SendBroadcastMessage("You died. Killstreak lost. No bonus XP awarded.")
         else
-            local bonus = math.floor(data.totalXP * BONUS_PERCENT * data.kills)
+            local avgXP = data.totalXP / data.kills
+            local bonus = math.floor(avgXP * data.kills * BONUS_PERCENT)
             player:GiveXP(bonus, player:GetLevel())
             player:SendBroadcastMessage("Killstreak ended! Bonus XP gained: |cff00ff00" .. bonus .. "|r")
         end
@@ -25,7 +29,7 @@ local function ResetKillstreak(player, died)
 end
 
 local function OnGiveXP(event, player, amount, victim)
-    if amount <= 0 then return end
+    if amount <= 0 or player:GetLevel() >= MAX_LEVEL then return end
 
     local guid = player:GetGUIDLow()
     local now = os.clock()
@@ -51,15 +55,19 @@ end
 local function PollKillstreakTimeout(eventId, delay, repeats)
     local now = os.clock()
     for _, player in pairs(GetPlayersInWorld()) do
-        local data = streakData[player:GetGUIDLow()]
-        if data and now - data.lastGainTime >= STREAK_TIMEOUT then
-            ResetKillstreak(player, false)
+        if player:GetLevel() < MAX_LEVEL then
+            local data = streakData[player:GetGUIDLow()]
+            if data and now - data.lastGainTime >= STREAK_TIMEOUT then
+                ResetKillstreak(player, false)
+            end
         end
     end
 end
 
 local function OnPlayerDie(_, player)
-    ResetKillstreak(player, true)
+    if player:GetLevel() < MAX_LEVEL then
+        ResetKillstreak(player, true)
+    end
 end
 
 local function OnPlayerLogout(_, player)
