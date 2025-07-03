@@ -33,6 +33,7 @@ end
 
 local function OnGiveXP(event, player, amount, victim)
     if amount <= 0 or player:GetLevel() >= MAX_LEVEL then return end
+    if not victim or not victim:IsAlive() then return end
 
     local guid = player:GetGUIDLow()
     local now = os.clock()
