@@ -16,12 +16,15 @@ local function ResetKillstreak(player, died)
 
     if data.kills > 1 and data.totalXP > 0 then
         if died then
-            player:SendBroadcastMessage("You died. Killstreak lost. No bonus XP awarded.")
+            if type(player.SendBroadcastMessage) == "function" then
+                player:SendBroadcastMessage("You died. Killstreak lost. No bonus XP awarded.")
+            end
         else
-            local avgXP = data.totalXP / data.kills
-            local bonus = math.floor(avgXP * data.kills * BONUS_PERCENT)
+            local bonus = math.floor(data.totalXP * BONUS_PERCENT * data.kills * 0.5)
             player:GiveXP(bonus, player:GetLevel())
-            player:SendBroadcastMessage("Killstreak ended! Bonus XP gained: |cff00ff00" .. bonus .. "|r")
+            if type(player.SendBroadcastMessage) == "function" then
+                player:SendBroadcastMessage("Killstreak ended! Bonus XP gained: |cff00ff00" .. bonus .. "|r")
+            end
         end
     end
 
@@ -48,7 +51,9 @@ local function OnGiveXP(event, player, amount, victim)
     end
 
     if streakData[guid].kills > 1 then
-        player:SendBroadcastMessage("Killstreak: |cff00ff00" .. streakData[guid].kills .. "|r")
+        if type(player.SendBroadcastMessage) == "function" then
+            player:SendBroadcastMessage("Killstreak: |cff00ff00" .. streakData[guid].kills .. "|r")
+        end
     end
 end
 
