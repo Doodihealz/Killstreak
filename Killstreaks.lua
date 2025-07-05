@@ -4,6 +4,7 @@ Killstreak_Initialized = true
 local STREAK_TIMEOUT = 5
 local BONUS_PERCENT = 0.21
 local MAX_LEVEL = 80
+local MAX_KILLSTREAK = 50
 
 local streakData = {}
 
@@ -46,6 +47,13 @@ local function OnGiveXP(event, player, amount, victim)
             totalXP = amount,
         }
     else
+        if data.kills >= MAX_KILLSTREAK then
+            if type(player.SendBroadcastMessage) == "function" then
+                player:SendBroadcastMessage("Killstreak cap reached! Additional XP not adding.")
+            end
+            return
+        end
+
         data.kills = data.kills + 1
         data.lastGainTime = now
         data.totalXP = data.totalXP + amount
