@@ -14,6 +14,7 @@ This is a lightweight Eluna script for [AzerothCore](https://www.azerothcore.org
   - World bosses: +100% XP
 - 🛡️ Anti-Exploit Logic:
   - ❌ No XP for PvP kills
+  - ❌ Streaks Cap out at 50 kills to prevent potentially gaining hundreds of thousands of exp from a single streak.
   - ❌ No XP for critters or mobs that give no experience
   - ❌ No bonus if you die or log out before streak ends
   - 🧹 Automatically cleans up all player data and timers
