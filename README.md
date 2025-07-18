@@ -1,6 +1,6 @@
 # Killstreak Bonus XP Script
 
-This is a lightweight Eluna script for [AzerothCore](https://www.azerothcore.org/) that rewards players with bonus experience when chaining multiple **PvE** kills in quick succession. The system incentivizes aggressive mob pulling and farming efficiency, without being exploitable through gray mobs, critters, or PvP.
+This is a lightweight Eluna script for [AzerothCore](https://www.azerothcore.org/) that rewards players with bonus experience when chaining multiple **PvE** kills in quick succession. The system incentivizes aggressive mob pulling and farming efficiency, without being exploitable through gray mobs, critters, or PvP. It now also supports Honor gains from PvP!
 
 ---
 
