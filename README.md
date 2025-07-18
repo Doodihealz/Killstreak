@@ -7,6 +7,7 @@ This is a lightweight Eluna script for [AzerothCore](https://www.azerothcore.org
 ## 🔥 Features
 
 - 🧠 Smart Killstreak Tracking: Tracks consecutive PvE kills with a 5-second expiration timer.
+- ⚔️ PvP Honor killstreaks now work! Get extra honor for going nuts in a battleground!
 - 📈 XP Scaling: Bonus XP increases based on kill count using a curved formula.
 - 🏆 Bonus Modifiers by Mob Rank:
   - Elite mobs: +25% XP
