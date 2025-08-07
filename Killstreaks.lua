@@ -3,133 +3,344 @@ Killstreak_Initialized = true
 
 local STREAK_TIMEOUT        = 5
 local BONUS_PERCENT         = 0.21
+local TIER_BONUS_PERCENT    = 0.015
 local MAX_LEVEL             = 80
 local MAX_KILLSTREAK        = 50
+local MAX_KILL_MULTIPLIER   = 15
 
 local HONOR_STREAK_TIMEOUT  = 5
 local HONOR_BONUS_PERCENT   = 0.21
+local HONOR_TIER_BONUS      = 0.02
 local MAX_HONOR_STREAK      = 50
 
 local streakData = {}
 local honorData  = {}
+local playerAliveStatus = {}
 
-local green = "|cff00ff00"
-local white = "|r"
+local WHITE = "|r"
+local BRIGHT_GREEN = "|cff00ff00"
+local YELLOW_GREEN = "|cffaaff00"
+local YELLOW = "|cffffff00"
+local ORANGE = "|cffff8800"
+local RED_ORANGE = "|cffff4400"
+local RED = "|cffff0000"
+local DARK_RED = "|cffcc0000"
+local BLOOD_RED = "|cff990000"
+local CRIMSON = "|cff660000"
+local DEEP_RED = "|cff440000"
 
-local function ResetKillstreak(p, died)
-    if p:GetLevel() >= MAX_LEVEL then return end
-    local d = streakData[p:GetGUIDLow()]
-    if not d then return end
-    if died then
-        p:SendBroadcastMessage("You've been killed. Streak has ended.")
-    elseif d.kills > 1 and d.totalXP > 0 then
-        local lvl   = p:GetLevel()
-        local bonus = math.floor(d.totalXP * BONUS_PERCENT * d.kills * 0.5 * (1 + lvl / 100))
-        p:GiveXP(bonus, lvl)
-        p:SendBroadcastMessage("Killstreak ended! Bonus XP gained: " .. green .. bonus .. white)
-    end
-    streakData[p:GetGUIDLow()] = nil
+local STREAK_TIERS = {
+    [5] = {name = "(On Fire!)", color = BRIGHT_GREEN},
+    [10] = {name = "(Rampage!)", color = YELLOW},
+    [15] = {name = "(Dominating!)", color = ORANGE},
+    [20] = {name = "(Unstoppable!)", color = RED_ORANGE},
+    [25] = {name = "(Merciless!)", color = RED},
+    [30] = {name = "(Killtacular!)", color = DARK_RED},
+    [35] = {name = "(Apocalyptic!)", color = BLOOD_RED},
+    [40] = {name = "(Godlike!)", color = CRIMSON},
+    [45] = {name = "(Legendary!)", color = DEEP_RED},
+    [50] = {name = "(Unfrigginbelievable!)", color = DEEP_RED}
+}
+
+local PVP_RANKS = {
+    [5] = {alliance = "Private", horde = "Scout", color = BRIGHT_GREEN},
+    [10] = {alliance = "Corporal", horde = "Grunt", color = YELLOW_GREEN},
+    [15] = {alliance = "Sergeant", horde = "Sergeant", color = YELLOW},
+    [20] = {alliance = "Master Sergeant", horde = "Senior Sergeant", color = ORANGE},
+    [25] = {alliance = "Sergeant Major", horde = "First Sergeant", color = RED_ORANGE},
+    [30] = {alliance = "Knight", horde = "Stone Guard", color = RED},
+    [35] = {alliance = "Knight-Lieutenant", horde = "Blood Guard", color = DARK_RED},
+    [40] = {alliance = "Knight-Captain", horde = "Legionnaire", color = BLOOD_RED},
+    [45] = {alliance = "Knight-Champion", horde = "Centurion", color = CRIMSON},
+    [50] = {alliance = "Lieutenant Commander", horde = "Champion", color = DEEP_RED}
+}
+
+local function IsValidPlayer(player)
+    return player and player:IsPlayer() and player:IsInWorld()
 end
 
-local function ResetHonorStreak(p, died)
-    local d = honorData[p:GetGUIDLow()]
-    if not d then return end
-    if not died and d.kills > 1 and d.totalHonor > 0 then
-        local lvl   = p:GetLevel()
-        local bonus = math.floor(d.totalHonor * (HONOR_BONUS_PERCENT + (lvl / 1000)))
-        local new   = p:GetHonorPoints() + bonus
-        p:SetHonorPoints(new)
-        p:SaveToDB()
-        p:SendBroadcastMessage("Honor awarded: " .. green .. bonus .. white)
-    end
-    honorData[p:GetGUIDLow()] = nil
+local function GetKillstreakTier(kills)
+    return math.floor((kills - 1) / 5)
 end
 
-local function OnGiveXP(_, player, amount, victim)
-    if amount <= 0 or player:GetLevel() >= MAX_LEVEL then return end
-    if victim and victim:IsPlayer() then return end
-    if not victim or not victim:IsAlive() then return end
-    local g, now = player:GetGUIDLow(), os.clock()
-    local d = streakData[g]
-    if not d then
-        streakData[g] = { kills = 1, lastGainTime = now, totalXP = amount }
-    else
-        if d.kills >= MAX_KILLSTREAK then
-            player:SendBroadcastMessage("Killstreak cap reached! Additional XP not adding.")
-            return
-        end
-        d.kills, d.lastGainTime, d.totalXP = d.kills + 1, now, d.totalXP + amount
-    end
-    if streakData[g].kills > 1 then
-        player:SendBroadcastMessage("Killstreak: " .. green .. streakData[g].kills .. white)
-    end
+local function GetHonorTier(kills)
+    return math.floor((kills - 1) / 5)
 end
 
-local function OnKillPlayer(_, killer, killed)
-    if not killer or not killed or not killer:IsPlayer() then return end
-    local g, now    = killer:GetGUIDLow(), os.clock()
-    local baseHonor = math.floor(killed:GetLevel() * 0.5 + 4)
-    local d = honorData[g]
-    if not d then
-        honorData[g] = { kills = 1, lastGainTime = now, totalHonor = baseHonor }
-    else
-        if d.kills >= MAX_HONOR_STREAK then return end
-        d.kills, d.lastGainTime, d.totalHonor = d.kills + 1, now, d.totalHonor + baseHonor
-    end
-    if honorData[g].kills > 1 then
-        killer:SendBroadcastMessage("Honor-Streak: " .. green .. honorData[g].kills .. white .. " kills")
-    end
-end
-
-local function PollKillstreakTimeout()
-    local n = os.clock()
-    for _, p in ipairs(GetPlayersInWorld()) do
-        if p:GetLevel() < MAX_LEVEL then
-            local d = streakData[p:GetGUIDLow()]
-            if d and n - d.lastGainTime >= STREAK_TIMEOUT then
-                ResetKillstreak(p, false)
+local function GetStreakTierInfo(kills)
+    local highestTier = nil
+    for threshold, info in pairs(STREAK_TIERS) do
+        if kills >= threshold then
+            if not highestTier or threshold > highestTier then
+                highestTier = threshold
             end
         end
     end
+    return highestTier and STREAK_TIERS[highestTier] or nil
 end
 
-local function PollHonorStreakTimeout()
-    local n = os.clock()
-    for _, p in ipairs(GetPlayersInWorld()) do
-        local d = honorData[p:GetGUIDLow()]
-        if d and n - d.lastGainTime >= HONOR_STREAK_TIMEOUT then
-            ResetHonorStreak(p, false)
+local function GetPvPRankInfo(kills, isAlliance)
+    local highestRank = nil
+    for threshold, info in pairs(PVP_RANKS) do
+        if kills >= threshold then
+            if not highestRank or threshold > highestRank then
+                highestRank = threshold
+            end
         end
     end
+    if not highestRank then return nil end
+    
+    local rankInfo = PVP_RANKS[highestRank]
+    local rankName = isAlliance and rankInfo.alliance or rankInfo.horde
+    return {name = rankName, color = rankInfo.color}
 end
 
-local function OnKilled(_, killer, killed)
-    if killed and killed:IsPlayer() and killed:GetLevel() < MAX_LEVEL then
-        ResetKillstreak(killed, true)
-    end
-    if killed and killed:IsPlayer() then
-        ResetHonorStreak(killed, true)
-    end
+local function CalculateKillstreakBonus(data, level)
+    local tier = GetKillstreakTier(data.kills)
+    local tierBonus = tier * TIER_BONUS_PERCENT
+    local totalBonusPercent = BONUS_PERCENT + tierBonus
+    local killMultiplier = math.min(data.kills, MAX_KILL_MULTIPLIER)
+    local levelMultiplier = 1 + level / 200
+    
+    return math.floor(data.totalXP * totalBonusPercent * killMultiplier * levelMultiplier)
 end
 
-local function OnPlayerDeath(_, player)
+local function CalculateHonorBonus(data, level)
+    local tier = GetHonorTier(data.kills)
+    local tierBonus = tier * HONOR_TIER_BONUS
+    local totalBonusPercent = HONOR_BONUS_PERCENT + tierBonus + (level / 1000)
+    
+    return math.floor(data.totalHonor * totalBonusPercent)
+end
+
+local function ResetKillstreak(player, wasDeath)
+    if not IsValidPlayer(player) or player:GetLevel() >= MAX_LEVEL then return end
+    
+    local guid = player:GetGUIDLow()
+    local data = streakData[guid]
+    if not data then return end
+    
+    if wasDeath then
+        if data.kills > 1 then
+            player:SendBroadcastMessage(RED .. "You've been killed! Killstreak of " .. data.kills .. " ended." .. WHITE)
+        end
+    elseif data.kills > 1 and data.totalXP > 0 then
+        local level = player:GetLevel()
+        local bonus = CalculateKillstreakBonus(data, level)
+        player:GiveXP(bonus)
+        player:SendBroadcastMessage("Killstreak ended! Bonus XP gained: " .. BRIGHT_GREEN .. bonus .. WHITE)
+    end
+    
+    streakData[guid] = nil
+end
+
+local function ResetHonorStreak(player, wasDeath)
+    if not IsValidPlayer(player) then return end
+    
+    local guid = player:GetGUIDLow()
+    local data = honorData[guid]
+    if not data then return end
+    
+    if wasDeath then
+        if data.kills > 1 then
+            player:SendBroadcastMessage(RED .. "Honor killstreak of " .. data.kills .. " ended!" .. WHITE)
+        end
+    elseif data.kills > 1 and data.totalHonor > 0 then
+        local level = player:GetLevel()
+        local bonus = CalculateHonorBonus(data, level)
+        local newHonor = player:GetHonorPoints() + bonus
+        player:SetHonorPoints(newHonor)
+        player:SaveToDB()
+        player:SendBroadcastMessage("Honor streak bonus awarded: " .. BRIGHT_GREEN .. bonus .. WHITE)
+    end
+    
+    honorData[guid] = nil
+end
+
+local function HandlePlayerDeath(player)
+    if not IsValidPlayer(player) then return end
+    
+    local guid = player:GetGUIDLow()
+    playerAliveStatus[guid] = false
+    
     if player:GetLevel() < MAX_LEVEL then
         ResetKillstreak(player, true)
     end
     ResetHonorStreak(player, true)
 end
 
-local function OnPlayerLogout(_, player)
-    streakData[player:GetGUIDLow()] = nil
-    honorData[player:GetGUIDLow()]  = nil
+local function OnGiveXP(event, player, amount, victim)
+    if not IsValidPlayer(player) or amount <= 0 or player:GetLevel() >= MAX_LEVEL then return end
+    
+    if not victim then return end
+    if victim:IsPlayer() then return end
+    
+    local guid = player:GetGUIDLow()
+    local currentTime = os.clock()
+    local data = streakData[guid]
+    
+    if not data then
+        streakData[guid] = {
+            kills = 1,
+            lastGainTime = currentTime,
+            totalXP = amount
+        }
+    else
+        if data.kills >= MAX_KILLSTREAK then
+            player:SendBroadcastMessage("Killstreak cap reached (" .. MAX_KILLSTREAK .. ")! Additional XP not counting toward streak.")
+            return
+        end
+        
+        data.kills = data.kills + 1
+        data.lastGainTime = currentTime
+        data.totalXP = data.totalXP + amount
+    end
+    
+    local currentStreak = streakData[guid].kills
+    if currentStreak > 1 then
+        local message = "Killstreak: " .. BRIGHT_GREEN .. currentStreak .. WHITE
+        local tierInfo = GetStreakTierInfo(currentStreak)
+        
+        if tierInfo then
+            message = message .. " " .. tierInfo.color .. tierInfo.name .. WHITE
+        end
+        
+        player:SendBroadcastMessage(message)
+    end
 end
 
-CreateLuaEvent(PollKillstreakTimeout, 1000, 0)
-CreateLuaEvent(PollHonorStreakTimeout, 1000, 0)
+local function OnKillPlayer(event, killer, killed)
+    if not IsValidPlayer(killer) or not IsValidPlayer(killed) then return end
+    
+    HandlePlayerDeath(killed)
+    
+    local guid = killer:GetGUIDLow()
+    local currentTime = os.clock()
+    local baseHonor = math.max(1, math.floor(killed:GetLevel() * 0.8 + 5))
+    
+    local data = honorData[guid]
+    if not data then
+        honorData[guid] = {
+            kills = 1,
+            lastGainTime = currentTime,
+            totalHonor = baseHonor
+        }
+    else
+        if data.kills >= MAX_HONOR_STREAK then
+            killer:SendBroadcastMessage("Honor killstreak cap reached (" .. MAX_HONOR_STREAK .. ")!")
+            return
+        end
+        
+        data.kills = data.kills + 1
+        data.lastGainTime = currentTime
+        data.totalHonor = data.totalHonor + baseHonor
+    end
+    
+    local currentStreak = honorData[guid].kills
+    if currentStreak > 1 then
+        local isAlliance = killer:GetTeam() == 0
+        local rankInfo = GetPvPRankInfo(currentStreak, isAlliance)
+        
+        local message = "Honor Killstreak: " .. BRIGHT_GREEN .. currentStreak .. WHITE .. " player kills"
+        
+        if rankInfo then
+            message = message .. " " .. rankInfo.color .. "(" .. rankInfo.name .. "!)" .. WHITE
+        end
+        
+        killer:SendBroadcastMessage(message)
+    end
+end
+
+local function OnPlayerLogin(event, player)
+    if not IsValidPlayer(player) then return end
+    local guid = player:GetGUIDLow()
+    playerAliveStatus[guid] = not player:IsDead()
+end
+
+local function OnPlayerLogout(event, player)
+    if not player then return end
+    
+    local guid = player:GetGUIDLow()
+    
+    if player:GetLevel() < MAX_LEVEL then
+        ResetKillstreak(player, false)
+    else
+        streakData[guid] = nil
+    end
+    ResetHonorStreak(player, false)
+    playerAliveStatus[guid] = nil
+end
+
+local function OnResurrect(event, player)
+    if not IsValidPlayer(player) then return end
+    local guid = player:GetGUIDLow()
+    playerAliveStatus[guid] = true
+end
+
+local function CheckPlayerDeaths()
+    for _, player in ipairs(GetPlayersInWorld()) do
+        if IsValidPlayer(player) then
+            local guid = player:GetGUIDLow()
+            local isDead = player:IsDead()
+            local wasAlive = playerAliveStatus[guid]
+            
+            if wasAlive ~= false and isDead then
+                HandlePlayerDeath(player)
+            end
+            
+            playerAliveStatus[guid] = not isDead
+        end
+    end
+end
+
+local function PollKillstreakTimeout()
+    local currentTime = os.clock()
+    local toRemove = {}
+    
+    for guid, data in pairs(streakData) do
+        if currentTime - data.lastGainTime >= STREAK_TIMEOUT then
+            for _, player in ipairs(GetPlayersInWorld()) do
+                if player:GetGUIDLow() == guid then
+                    ResetKillstreak(player, false)
+                    break
+                end
+            end
+            table.insert(toRemove, guid)
+        end
+    end
+    
+    for _, guid in ipairs(toRemove) do
+        streakData[guid] = nil
+    end
+end
+
+local function PollHonorStreakTimeout()
+    local currentTime = os.clock()
+    local toRemove = {}
+    
+    for guid, data in pairs(honorData) do
+        if currentTime - data.lastGainTime >= HONOR_STREAK_TIMEOUT then
+            for _, player in ipairs(GetPlayersInWorld()) do
+                if player:GetGUIDLow() == guid then
+                    ResetHonorStreak(player, false)
+                    break
+                end
+            end
+            table.insert(toRemove, guid)
+        end
+    end
+    
+    for _, guid in ipairs(toRemove) do
+        honorData[guid] = nil
+    end
+end
+
+CreateLuaEvent(PollKillstreakTimeout, 2000, 0)
+CreateLuaEvent(PollHonorStreakTimeout, 2000, 0)
+CreateLuaEvent(CheckPlayerDeaths, 1000, 0)
+
 RegisterPlayerEvent(12, OnGiveXP)
 RegisterPlayerEvent(6,  OnKillPlayer)
-RegisterPlayerEvent(6,  OnKilled)
-RegisterPlayerEvent(8,  OnKilled)
-RegisterPlayerEvent(40, OnPlayerDeath)
-RegisterPlayerEvent(35, OnPlayerDeath)
+RegisterPlayerEvent(1,  OnPlayerLogin)
 RegisterPlayerEvent(4,  OnPlayerLogout)
+RegisterPlayerEvent(17, OnResurrect)
