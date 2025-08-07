@@ -116,7 +116,7 @@ Final Honor = Base Honor × (Base% + Tier% + Level%)
 
 ### Setup
 1. Place script in your `lua_scripts` directory
-2. Restart world server
+2. Restart world server or .reload eluna
 3. Enjoy!
 
 ---
