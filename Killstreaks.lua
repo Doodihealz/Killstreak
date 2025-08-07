@@ -341,6 +341,6 @@ CreateLuaEvent(CheckPlayerDeaths, 1000, 0)
 
 RegisterPlayerEvent(12, OnGiveXP)
 RegisterPlayerEvent(6,  OnKillPlayer)
-RegisterPlayerEvent(1,  OnPlayerLogin)
+RegisterPlayerEvent(3,  OnPlayerLogin)
 RegisterPlayerEvent(4,  OnPlayerLogout)
-RegisterPlayerEvent(17, OnResurrect)
+RegisterPlayerEvent(36, OnResurrect)
