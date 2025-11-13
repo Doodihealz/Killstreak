@@ -1,6 +1,8 @@
 if Killstreak_Initialized then return end
 Killstreak_Initialized = true
 
+-- Killstreak System with comprehensive detection for PvE and PvP kills
+
 local STREAK_TIMEOUT        = 5
 local BONUS_PERCENT         = 0.21
 local TIER_BONUS_PERCENT    = 0.015
@@ -8,14 +10,20 @@ local MAX_LEVEL             = 80
 local MAX_KILLSTREAK        = 50
 local MAX_KILL_MULTIPLIER   = 15
 
-local HONOR_STREAK_TIMEOUT  = 5
-local HONOR_BONUS_PERCENT   = 0.21
-local HONOR_TIER_BONUS      = 0.02
+local HONOR_STREAK_TIMEOUT  = 10
+local HONOR_BASE_MULTIPLIER = 3 -- boosts base honor earned per kill for streak tracking
+local HONOR_BONUS_PERCENT   = 0.45
+local HONOR_TIER_BONUS      = 0.04
 local MAX_HONOR_STREAK      = 50
+
+local PARTY_MAX_MEMBERS     = 5
+local PARTY_BONUS_PER_MEMBER= 0.125
 
 local streakData = {}
 local honorData  = {}
 local playerAliveStatus = {}
+local partyCache = {}
+local partyCacheTime = {}
 
 local WHITE = "|r"
 local BRIGHT_GREEN = "|cff00ff00"
@@ -95,14 +103,73 @@ local function GetPvPRankInfo(kills, isAlliance)
     return {name = rankName, color = rankInfo.color}
 end
 
-local function CalculateKillstreakBonus(data, level)
+local function GetPartyCount(player)
+    if not IsValidPlayer(player) then return 1 end
+    
+    local guid = player:GetGUIDLow()
+    if not guid then return 1 end
+    
+    local now = os.clock()
+    if partyCache[guid] and partyCacheTime[guid] and (now - partyCacheTime[guid]) < 5 then
+        return partyCache[guid]
+    end
+    
+    local group = player.GetGroup and player:GetGroup() or nil
+    if not group then 
+        partyCache[guid] = 1
+        partyCacheTime[guid] = now
+        return 1 
+    end
+    
+    local count = 1
+    if group.GetMembersCount then
+        local memberCount = group:GetMembersCount()
+        if type(memberCount) == "number" and memberCount > 0 then 
+            count = math.min(memberCount, PARTY_MAX_MEMBERS)
+        end
+    elseif group.GetMembers then
+        local members = group:GetMembers()
+        if type(members) == "table" then
+            local memberCount = #members
+            count = memberCount > 0 and math.min(memberCount, PARTY_MAX_MEMBERS) or 1
+        end
+    end
+    
+    partyCache[guid] = count
+    partyCacheTime[guid] = now
+    
+    return count
+end
+
+local function GetPartyMultiplier(player)
+    local partyCount = GetPartyCount(player)
+    return 1 + (partyCount - 1) * PARTY_BONUS_PER_MEMBER
+end
+
+local function BuildPlayerLookup()
+    local lookup = {}
+    local players = GetPlayersInWorld()
+    if type(players) ~= "table" then
+        return lookup
+    end
+    for i = 1, #players do
+        local player = players[i]
+        if IsValidPlayer(player) then
+            lookup[player:GetGUIDLow()] = player
+        end
+    end
+    return lookup
+end
+
+local function CalculateKillstreakBonus(data, level, player)
     local tier = GetKillstreakTier(data.kills)
     local tierBonus = tier * TIER_BONUS_PERCENT
     local totalBonusPercent = BONUS_PERCENT + tierBonus
     local killMultiplier = math.min(data.kills, MAX_KILL_MULTIPLIER)
     local levelMultiplier = 1 + level / 200
+    local partyMultiplier = player and GetPartyMultiplier(player) or 1
     
-    return math.floor(data.totalXP * totalBonusPercent * killMultiplier * levelMultiplier)
+    return math.floor(data.totalXP * totalBonusPercent * killMultiplier * levelMultiplier * partyMultiplier)
 end
 
 local function CalculateHonorBonus(data, level)
@@ -126,9 +193,19 @@ local function ResetKillstreak(player, wasDeath)
         end
     elseif data.kills > 1 and data.totalXP > 0 then
         local level = player:GetLevel()
-        local bonus = CalculateKillstreakBonus(data, level)
+        local bonus = CalculateKillstreakBonus(data, level, player)
+        
+        -- Calculate percentage of current level
+        local currentXP = player:GetUInt32Value(1191) -- PLAYER_XP
+        local maxXP = player:GetUInt32Value(1192) -- PLAYER_NEXT_LEVEL_XP
+        local percentage = 0
+        if maxXP > 0 then
+            percentage = (bonus / maxXP) * 100
+        end
+        
         player:GiveXP(bonus)
-        player:SendBroadcastMessage("Killstreak ended! Bonus XP gained: " .. BRIGHT_GREEN .. bonus .. WHITE)
+        local message = "Killstreak finished, you gained " .. BRIGHT_GREEN .. bonus .. WHITE .. " experience"
+        player:SendBroadcastMessage(message)
     end
     
     streakData[guid] = nil
@@ -148,6 +225,9 @@ local function ResetHonorStreak(player, wasDeath)
     elseif data.kills > 1 and data.totalHonor > 0 then
         local level = player:GetLevel()
         local bonus = CalculateHonorBonus(data, level)
+        if player:HasAura(68652) then
+            bonus = math.floor(bonus * 1.5)
+        end
         local newHonor = player:GetHonorPoints() + bonus
         player:SetHonorPoints(newHonor)
         player:SaveToDB()
@@ -168,6 +248,8 @@ local function HandlePlayerDeath(player)
     end
     ResetHonorStreak(player, true)
 end
+
+
 
 local function OnGiveXP(event, player, amount, victim)
     if not IsValidPlayer(player) or amount <= 0 or player:GetLevel() >= MAX_LEVEL then return end
@@ -216,7 +298,7 @@ local function OnKillPlayer(event, killer, killed)
     
     local guid = killer:GetGUIDLow()
     local currentTime = os.clock()
-    local baseHonor = math.max(1, math.floor(killed:GetLevel() * 0.8 + 5))
+    local baseHonor = math.max(1, math.floor((killed:GetLevel() * 0.8 + 5) * HONOR_BASE_MULTIPLIER))
     
     local data = honorData[guid]
     if not data then
@@ -269,6 +351,12 @@ local function OnPlayerLogout(event, player)
     end
     ResetHonorStreak(player, false)
     playerAliveStatus[guid] = nil
+    
+    -- Clean up party cache for this player
+    if guid then
+        partyCache[guid] = nil
+        partyCacheTime[guid] = nil
+    end
 end
 
 local function OnResurrect(event, player)
@@ -296,14 +384,13 @@ end
 local function PollKillstreakTimeout()
     local currentTime = os.clock()
     local toRemove = {}
+    local playersByGuid = BuildPlayerLookup()
     
     for guid, data in pairs(streakData) do
         if currentTime - data.lastGainTime >= STREAK_TIMEOUT then
-            for _, player in ipairs(GetPlayersInWorld()) do
-                if player:GetGUIDLow() == guid then
-                    ResetKillstreak(player, false)
-                    break
-                end
+            local player = playersByGuid[guid]
+            if player then
+                ResetKillstreak(player, false)
             end
             table.insert(toRemove, guid)
         end
@@ -312,19 +399,32 @@ local function PollKillstreakTimeout()
     for _, guid in ipairs(toRemove) do
         streakData[guid] = nil
     end
+    
+    -- Clean up old party cache entries
+    local partyCacheRemove = {}
+    for guid, cacheTime in pairs(partyCacheTime) do
+        if currentTime - cacheTime > 60 then
+            partyCacheRemove[#partyCacheRemove + 1] = guid
+        end
+    end
+    
+    for i = 1, #partyCacheRemove do
+        local guid = partyCacheRemove[i]
+        partyCache[guid] = nil
+        partyCacheTime[guid] = nil
+    end
 end
 
 local function PollHonorStreakTimeout()
     local currentTime = os.clock()
     local toRemove = {}
+    local playersByGuid = BuildPlayerLookup()
     
     for guid, data in pairs(honorData) do
         if currentTime - data.lastGainTime >= HONOR_STREAK_TIMEOUT then
-            for _, player in ipairs(GetPlayersInWorld()) do
-                if player:GetGUIDLow() == guid then
-                    ResetHonorStreak(player, false)
-                    break
-                end
+            local player = playersByGuid[guid]
+            if player then
+                ResetHonorStreak(player, false)
             end
             table.insert(toRemove, guid)
         end
